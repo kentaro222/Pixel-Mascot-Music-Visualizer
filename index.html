@@ -358,9 +358,12 @@
                 character.isJumping = true;
                 character.vy = character.jumpPower; 
             }
-        } else if (isPlaying) {
-             scrollDistance += baseScrollSpeed; 
+                } else {
+            // 曲が鳴っていない時（終了後や開始前）のゆっくりとした動き
+            scrollDistance += baseScrollSpeed * 0.4; // スクロール速度を通常(3)の 0.4倍 に落とす
+            frameInterval = 400; // 足の回転スピードを遅くする（数字が大きいほど遅い。通常時は200）
         }
+
 
 // オーロラの変化
         let currentHue = (scrollDistance * 0.01) % 360; 
