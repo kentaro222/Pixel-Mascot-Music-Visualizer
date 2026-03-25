@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>Pixel Mascot Visualizer</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; color: #fff; }
+        canvas { display: block; image-rendering: pixelated; }
+
+        #view-select { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; }
+        #view-play { display: none; }
+
+        #ui-select { background: rgba(10, 5, 20, 0.8); padding: 30px; border: 1px solid #ff007f; border-radius: 8px; text-align: center; box-shadow: 0 0 20px rgba(255, 0, 127, 0.4);}
+        h2 { margin-top: 0; color: #00ffff; text-shadow: 2px 2px 0px #ff007f; letter-spacing: 2px;}
+        button { cursor: pointer; background: linear-gradient(45deg, #00ffff, #ff007f); border: none; color: white; padding: 12px 24px; margin-top: 15px; font-weight: bold; border-radius: 4px; font-size: 16px; transition: 0.2s;}
+        button:hover { opacity: 0.8; }
+        button:disabled { background: #555; cursor: not-allowed; color: #888; }
+        
+        /* 戻るボタンのスタイル修正 (シンプルに矢印アイコン風) */
+        #backBtn {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            z-index: 10;
+            padding: 5px 15px; /* 矢印に合わせて横幅を少し広く */
+            font-size: 24px; /* 矢印を大きく */
+            line-height: 1; /* 行間を詰め */
+            background: rgba(0, 0, 0, 0.5);
+            color: white;
+            border: 1px solid #00ffff;
+            cursor: pointer;
+            font-family: serif; /* 矢印が綺麗に出るフォント */
+            border-radius: 4px;
+            transition: 0.2s;
+        }
+        #backBtn:hover {
+            background: rgba(0, 255, 255, 0.2);
+        }
+
+        #music-info { position: absolute; bottom: 15px; right: 15px; font-size: 14px; text-align: right; pointer-events: none; text-shadow: 1px 1px 2px black;}
+    </style>
+</head>
+<body>
+
+<div id="view-select">
+    <div id="ui-select">
+        <h2>CITY POP<br>AURORA CRUISING</h2>
+        <input type="file" id="audioFile" accept="audio/*" style="margin: 10px 0;"><br>
+        <button id="playBtn" disabled>再生開始</button>
+        <p style="font-size: 12px; margin-top: 20px; color: #ccc;">※音量でスクロールが加速し、重低音でジャンプします</p>
+    </div>
+</div>
+
+<div id="view-play">
+    <button id="backBtn">←</button> <div id="music-info">
+        <span id="file-name"></span>
+    </div>
+    <canvas id="stage"></canvas>
+</div>
+
+<script>
+    const image_url = "Mascot_0.png"; 
+
+    let audioContext, analyser, dataArray;
+    let isPlaying = false;
+    let audioBuffer;
+    let audioSource;
+
+    let spriteSheet;
+    let flippedFrames = [];
+    const frameWidth = 16;
+    const frameHeight = 16;
+    const numFrames = 3;
+
+    let canvas, ctx;
+    let frameTimer = 0;
+    let frameInterval = 200; 
+    let currentScale = 5; 
+
+    let scrollDistance = 0;
+    let baseScrollSpeed = 3;
+
+    let character = { 
+        x: 0, 
+        y: 0, 
+        frameIndex: 0, 
+        isJumping: false, 
+        jumpY: 0,
+        vy: 0,          
+        gravity: 0.7,   
+        jumpPower: -10, 
+        cooldown: 0     
+    };
+
+    const buildingHeights = Array.from({length: 50}, () => Math.random() * 150 + 50);
+    
+    // 星のデータを格納する配列
+    let stars = [];
+
+    document.getElementById('audioFile').addEventListener('change', (e) => {
+        if (e.target.files.length > 0) {
+            document.getElementById('playBtn').disabled = false;
+            document.getElementById('file-name').textContent = "♪ " + e.target.files[0].name;
+        }
+    });
+
+    document.getElementById('playBtn').addEventListener('click', () => {
+        const fileInput = document.getElementById('audioFile');
+        if (fileInput.files.length > 0) {
+            transitionToPlay(fileInput.files[0]);
+        }
+    });
+
+    document.getElementById('backBtn').addEventListener('click', () => {
+        if(audioSource) audioSource.stop();
+        isPlaying = false;
+        document.getElementById('view-select').style.display = 'flex';
+        document.getElementById('view-play').style.display = 'none';
+    });
+
+    async function init() {
+        canvas = document.getElementById('stage');
+        ctx = canvas.getContext('2d');
+        resizeCanvas();
+
+        // 星をランダムな位置に100個生成
+        for(let i = 0; i < 100; i++) {
+            stars.push({
+                x: Math.random() * canvas.width,
+                y: Math.random() * (canvas.height - 100),
+                size: Math.random() * 1.5 + 0.5,
+                speed: Math.random() * 0.5 + 0.1
+            });
+        }
+
+        spriteSheet = new Image();
+        spriteSheet.src = image_url;
+        await new Promise(resolve => spriteSheet.onload = resolve);
+
+        for (let i = 0; i < numFrames; i++) {
+            flippedFrames.push(flipSprite(spriteSheet, i * frameWidth, 0, frameWidth, frameHeight));
+        }
+
+        // キャラクターの初期位置 (画面左端から固定距離)
+        character.x = 100; // ★修正：画面左端から100px固定
+        character.y = canvas.height - 100 - frameHeight * currentScale;
+
+        animate();
+    }
+
+    function flipSprite(img, sx, sy, sw, sh) {
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = sw;
+        tempCanvas.height = sh;
+        const tempCtx = tempCanvas.getContext('2d');
+        tempCtx.imageSmoothingEnabled = false; 
+        tempCtx.scale(-1, 1);
+        tempCtx.drawImage(img, sx, sy, sw, sh, -sw, 0, sw, sh);
+        return tempCanvas;
+    }
+
+    async function transitionToPlay(file) {
+        document.getElementById('view-select').style.display = 'none';
+        document.getElementById('view-play').style.display = 'block';
+
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        analyser = audioContext.createAnalyser();
+        analyser.fftSize = 256; 
+        dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+        const arrayBuffer = await file.arrayBuffer();
+        audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+
+        if (audioSource) audioSource.stop();
+        audioSource = audioContext.createBufferSource();
+        audioSource.buffer = audioBuffer;
+        audioSource.connect(analyser);
+        analyser.connect(audioContext.destination);
+        audioSource.start(0);
+
+        isPlaying = true;
+    }
+
+    function animate() {
+        requestAnimationFrame(animate);
+
+        let amplitude = 0;
+        let bassAmplitude = 0;
+
+        if (isPlaying && analyser) {
+            analyser.getByteFrequencyData(dataArray);
+
+            let sum = 0;
+            for(let i=0; i<dataArray.length; i++) sum += dataArray[i];
+            amplitude = sum / dataArray.length;
+
+            let bassSum = 0;
+            for(let i=0; i<=5; i++) bassSum += dataArray[i];
+            bassAmplitude = bassSum / 6;
+
+            let speedMultiplier = 1 + (amplitude / 50);
+            scrollDistance += baseScrollSpeed * speedMultiplier;
+            
+            frameInterval = Math.max(50, 200 - amplitude * 2); 
+
+            if (bassAmplitude > 230 && !character.isJumping && character.cooldown === 0) {
+                character.isJumping = true;
+                character.vy = character.jumpPower; 
+            }
+        } else {
+            scrollDistance += baseScrollSpeed; 
+        }
+
+        // オーロラの変化速度（ゆっくり変わる）
+        let currentHue = (scrollDistance * 0.005) % 360; 
+        drawAuroraCityBackground(bassAmplitude, amplitude, currentHue);
+        updateCharacter();
+        drawCharacter();
+    }
+
+    function drawAuroraCityBackground(bass, amp, hue) {
+        const horizonY = canvas.height - 100;
+
+        // 1. オーロラ風の空（全体はチカチカさせず、色はゆっくり変化）
+        let bgGradient = ctx.createLinearGradient(0, 0, 0, horizonY);
+        bgGradient.addColorStop(0, `hsl(${hue}, 100%, 5%)`); 
+        bgGradient.addColorStop(0.4, `hsl(${(hue + 60) % 360}, 100%, 10%)`); 
+        bgGradient.addColorStop(1, `hsl(${(hue + 120) % 360}, 100%, 20%)`); 
+        
+        ctx.fillStyle = bgGradient;
+        ctx.fillRect(0, 0, canvas.width, horizonY);
+
+        // ★追加：流れる星
+        ctx.fillStyle = "white";
+        stars.forEach(star => {
+            // 星もゆっくり左へ流れる
+            star.x -= (star.speed + (baseScrollSpeed * 0.02)); 
+            if (star.x < 0) {
+                star.x = canvas.width; // 画面外に出たら右から再登場
+                star.y = Math.random() * horizonY;
+            }
+            // 少しだけ瞬きさせる
+            ctx.globalAlpha = Math.random() * 0.5 + 0.5;
+            ctx.fillRect(star.x, star.y, star.size, star.size);
+        });
+        ctx.globalAlpha = 1.0; // 透明度をリセット
+
+        // 2. 巨大な夕日（ベースに合わせて脈打つ動きを復活）
+        const sunRadius = 120 + (bass / 4);
+        ctx.fillStyle = "#ff5e00"; 
+        ctx.shadowColor = "#ff007f";
+        ctx.shadowBlur = 30 + (bass / 2);
+        ctx.beginPath();
+        ctx.arc(canvas.width * 0.7, horizonY, sunRadius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0; 
+
+        // 夕日の縞模様
+        ctx.fillStyle = bgGradient;
+        for (let i = 0; i < 6; i++) {
+            let stripeY = horizonY - (i * 25);
+            let stripeHeight = 4 + i * 2;
+            ctx.fillRect(canvas.width * 0.7 - 173, stripeY, 346, stripeHeight);
+        }
+
+        // 3. 遠景のビル群
+        ctx.fillStyle = "#0c0714"; 
+        const buildWidth = 80;
+        const numBuilds = buildingHeights.length;
+        const totalBuildWidth = buildWidth * numBuilds;
+        
+        for (let i = 0; i < numBuilds + (canvas.width/buildWidth); i++) {
+            let x = ((i * buildWidth) - (scrollDistance * 0.2)) % totalBuildWidth;
+            if (x < -buildWidth) x += totalBuildWidth;
+            
+            let h = buildingHeights[i % numBuilds];
+            ctx.fillRect(x, horizonY - h, buildWidth + 1, h);
+            
+            // ビルの窓（音量：amp に合わせて点滅する動きを復活）
+            if (i % 3 === 0) {
+                ctx.fillStyle = `hsla(${(hue + 90) % 360}, 100%, 70%, ${amp / 255})`;
+                ctx.fillRect(x + 20, horizonY - h + 20, 10, 10);
+                ctx.fillStyle = "#0c0714"; 
+            }
+        }
+
+        // 4. 地面（ハイウェイ）
+        ctx.fillStyle = "#150a21";
+        ctx.fillRect(0, horizonY, canvas.width, 100);
+
+        // 5. 疾走感を出す道路のセンターライン
+        ctx.strokeStyle = "#ff007f";
+        ctx.lineWidth = 4;
+        ctx.setLineDash([80, 60]); 
+        
+        // ★修正：オフセットの計算をプラスにし、正しい方向(左)へ流す。さらに速度を減速(*1.2)。
+        ctx.lineDashOffset = scrollDistance * 1.2; 
+        
+        ctx.beginPath();
+        ctx.moveTo(0, canvas.height - 50);
+        ctx.lineTo(canvas.width, canvas.height - 50);
+        ctx.stroke();
+        ctx.setLineDash([]); 
+
+        // 6. 流れる街灯
+        const lightSpacing = 400;
+        for (let i = 0; i < 5; i++) {
+            // ★修正：スクロール速度を*2から*1.2へ減速
+            let x = ((i * lightSpacing) - (scrollDistance * 1.2)) % (lightSpacing * 5);
+            if (x < -50) x += lightSpacing * 5;
+
+            // 柱
+            ctx.fillStyle = "#222";
+            ctx.fillRect(x, horizonY - 150, 8, 150);
+            
+            // ライト部分
+            ctx.fillStyle = "#00ffff";
+            ctx.shadowColor = "#00ffff";
+            ctx.shadowBlur = 15;
+            ctx.fillRect(x - 10, horizonY - 150, 28, 8);
+            ctx.shadowBlur = 0;
+        }
+    }
+
+    function updateCharacter() {
+        const now = Date.now();
+
+        if (!character.isJumping && now - frameTimer > frameInterval) {
+            frameTimer = now;
+            character.frameIndex = (character.frameIndex === 0) ? 1 : 0;
+        }
+
+        if (character.isJumping) {
+            character.frameIndex = 2; 
+            character.vy += character.gravity; 
+            character.jumpY += character.vy;
+
+            if (character.jumpY >= 0) {
+                character.jumpY = 0;
+                character.vy = 0;
+                character.isJumping = false;
+                character.cooldown = 12; 
+                character.frameIndex = 0; 
+            }
+        }
+
+        if (character.cooldown > 0) character.cooldown--;
+    }
+
+    function drawCharacter() {
+        if (flippedFrames.length > 0) {
+            const frameToDraw = flippedFrames[character.frameIndex];
+            const dw = frameWidth * currentScale;
+            const dh = frameHeight * currentScale;
+            const dx = character.x;
+            const dy = character.y + character.jumpY; 
+            
+            ctx.shadowColor = "rgba(0, 0, 0, 0.8)";
+            ctx.shadowBlur = 5;
+            ctx.shadowOffsetY = 5;
+            
+            ctx.drawImage(frameToDraw, 0, 0, frameWidth, frameHeight, dx, dy, dw, dh);
+            
+            ctx.shadowBlur = 0;
+            ctx.shadowOffsetY = 0;
+        }
+    }
+
+    function resizeCanvas() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        ctx.imageSmoothingEnabled = false; 
+        if(character) {
+            character.x = 100; // ★修正：リサイズ時も左端から100px固定
+            character.y = canvas.height - 100 - frameHeight * currentScale;
+        }
+    }
+
+    window.addEventListener('resize', resizeCanvas);
+
+    init();
+</script>
+</body>
+</html>
