@@ -1,2 +1,2 @@
 # Pixel-Mascot-Music-Visualizer
-Pixel Character の Music Visualizer です。
+Pixel Mascot の Music Visualizer です。
