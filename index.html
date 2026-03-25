@@ -2,6 +2,7 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Pixel Mascot Visualizer</title>
     <style>
         body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; color: #fff; }
@@ -10,13 +11,32 @@
         #view-select { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; }
         #view-play { display: none; }
 
-        #ui-select { background: rgba(10, 5, 20, 0.8); padding: 30px; border: 1px solid #ff007f; border-radius: 8px; text-align: center; box-shadow: 0 0 20px rgba(255, 0, 127, 0.4);}
-        h2 { margin-top: 0; color: #00ffff; text-shadow: 2px 2px 0px #ff007f; letter-spacing: 2px;}
-        button { cursor: pointer; background: linear-gradient(45deg, #00ffff, #ff007f); border: none; color: white; padding: 12px 24px; margin-top: 15px; font-weight: bold; border-radius: 4px; font-size: 16px; transition: 0.2s;}
+        /* ★修正：スマホで見やすくするためのサイズ・余白調整 */
+        #ui-select { 
+            background: rgba(10, 5, 20, 0.85); 
+            padding: 40px 20px; /* 上下左右の余白を拡大 */
+            width: 90%;         /* 画面幅に合わせて伸縮 */
+            max-width: 400px;   /* PCで大きくなりすぎないように制限 */
+            box-sizing: border-box;
+            border: 1px solid #ff007f; 
+            border-radius: 12px; 
+            text-align: center; 
+            box-shadow: 0 0 20px rgba(255, 0, 127, 0.4);
+        }
+        h2 { font-size: 24px; margin-top: 0; color: #00ffff; text-shadow: 2px 2px 0px #ff007f; letter-spacing: 2px; line-height: 1.4;}
+        input[type="file"] { font-size: 16px; margin: 20px 0; max-width: 100%; cursor: pointer;}
+        
+        button { cursor: pointer; background: linear-gradient(45deg, #00ffff, #ff007f); border: none; color: white; transition: 0.2s;}
         button:hover { opacity: 0.8; }
         button:disabled { background: #555; cursor: not-allowed; color: #888; }
         
-        /* 画面左上のコントロール群（戻るボタン ＋ スリープ防止ボタン） */
+        /* ★修正：再生ボタンをスマホでタップしやすい大きさに */
+        #playBtn { padding: 16px 32px; font-weight: bold; border-radius: 8px; font-size: 18px; width: 80%; }
+        
+        /* ★修正：説明文の文字サイズと行間を調整 */
+        #ui-select p { font-size: 14px; margin-top: 25px; color: #ccc; line-height: 1.5; }
+
+        /* 画面左上のコントロール群 */
         #top-left-controls {
             position: absolute;
             top: 15px;
@@ -24,10 +44,9 @@
             z-index: 10;
             display: flex;
             align-items: center;
-            gap: 10px; /* ボタン間の隙間 */
+            gap: 10px; 
         }
 
-        /* 戻るボタン */
         #backBtn {
             padding: 5px 15px; 
             font-size: 24px; 
@@ -37,58 +56,56 @@
             border: 1px solid #00ffff;
             cursor: pointer;
             font-family: serif; 
-            border-radius: 4px;
+            border-radius: 6px;
             transition: 0.2s;
         }
         #backBtn:hover {
             background: rgba(0, 255, 255, 0.2);
         }
 
-        /* スリープ防止ボタン（枠付きにデザイン変更） */
+        /* スリープ防止ボタン */
         #wakeLockBtn {
-            width: 36px;
-            height: 36px;
+            width: 38px;
+            height: 38px;
             background: rgba(0, 0, 0, 0.5);
-            border: 1px solid #555;
-            border-radius: 4px;
+            border: 1px solid #444; /* デフォルトは少し暗い枠 */
+            border-radius: 6px;
             cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
-            transition: 0.2s;
+            transition: all 0.3s ease;
         }
-        #wakeLockBtn:hover {
-            background: rgba(0, 255, 255, 0.2);
-            border-color: #00ffff;
-        }
-        /* スリープ防止ONの時は枠線も光らせる */
+
+        /* ★修正：スリープ防止ONの時のボタン背景をうっすら光らせる */
         #wakeLockBtn.active {
+            background: rgba(0, 255, 255, 0.15); 
             border-color: #00ffff;
         }
 
         /* 小さなインジケータードット */
         #wakeLockBtn .indicator {
-            width: 12px;
-            height: 12px;
+            width: 10px;
+            height: 10px;
             border-radius: 50%;
-            background-color: #555; 
-            transition: background-color 0.2s, box-shadow 0.2s;
-            border: 2px solid #333;
+            transition: all 0.3s ease;
         }
 
-        /* スリープ防止ON (点灯) */
-        #wakeLockBtn.active .indicator {
-            background-color: #00ffff; 
-            box-shadow: 0 0 8px #00ffff; 
-        }
-
-        /* スリープ防止OFF (消灯) */
+        /* ★修正：スリープ防止OFF (消灯状態をよりリアルに暗く・凹ませる) */
         #wakeLockBtn.inactive .indicator {
-            background-color: #555; 
-            box-shadow: inset 0 0 3px #000;
+            background-color: #222; 
+            border: 1px solid #111;
+            box-shadow: inset 0 2px 3px rgba(0,0,0,0.8);
         }
 
-        /* 画面右下のコントロール群（曲名表示のみ） */
+        /* ★修正：スリープ防止ON (中心を白っぽくし、柔らかな光彩を放つLED風) */
+        #wakeLockBtn.active .indicator {
+            background-color: #e6ffff; 
+            border: 1px solid #00ffff;
+            box-shadow: 0 0 5px #00ffff, 0 0 10px #00ffff; 
+        }
+
+        /* 画面右下のコントロール群 */
         #play-view-controls {
             position: absolute;
             bottom: 15px;
@@ -96,7 +113,6 @@
             pointer-events: none;
         }
 
-        /* 曲名表示 */
         #music-info { 
             font-size: 14px; 
             text-align: right; 
@@ -109,9 +125,9 @@
 <div id="view-select">
     <div id="ui-select">
         <h2>CITY POP<br>AURORA CRUISING</h2>
-        <input type="file" id="audioFile" accept="audio/*" style="margin: 10px 0;"><br>
+        <input type="file" id="audioFile" accept="audio/*"><br>
         <button id="playBtn" disabled>再生開始</button>
-        <p style="font-size: 12px; margin-top: 20px; color: #ccc;">※音量でスクロールが加速し、重低音でジャンプします</p>
+        <p>※音量でスクロールが加速し、<br>重低音でジャンプします</p>
     </div>
 </div>
 
@@ -152,7 +168,6 @@
     let scrollDistance = 0;
     let baseScrollSpeed = 3;
 
-    // --- スリープ防止 (Wake Lock) 用の変数 ---
     let wakeLock = null;
     let isWakeLockEnabled = false;
 
@@ -198,12 +213,10 @@
         document.getElementById('view-select').style.display = 'flex';
         document.getElementById('view-play').style.display = 'none';
         
-        // 戻る時はスリープ防止を解除
         isWakeLockEnabled = false;
         releaseWakeLock();
     });
 
-    // --- スリープ防止ロジック ---
     wakeLockBtn.addEventListener('click', async () => {
         isWakeLockEnabled = !isWakeLockEnabled;
         if (isWakeLockEnabled) {
@@ -219,7 +232,6 @@
                 wakeLock = await navigator.wakeLock.request('screen');
                 updateWakeLockUI(true);
                 
-                // OS側でロックが解除された場合（タブ切り替え等）の処理
                 wakeLock.addEventListener('release', () => {
                     wakeLock = null;
                 });
@@ -254,14 +266,11 @@
         }
     }
 
-    // タブを切り替えて戻ってきた時に、再度スリープ防止を有効にする
     document.addEventListener('visibilitychange', async () => {
         if (wakeLock !== null && document.visibilityState === 'visible' && isWakeLockEnabled) {
             await requestWakeLock();
         }
     });
-    // ----------------------------
-
 
     async function init() {
         canvas = document.getElementById('stage');
